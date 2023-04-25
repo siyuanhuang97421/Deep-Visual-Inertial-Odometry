@@ -49,7 +49,7 @@ class DeepVO(nn.Module):
 
         self.batchNorm = True
         self.conv_drop_out = 0.2
-        self.conv1   = conv(self.batchNorm,   6,   64, kernel_size=7, stride=2, dropout=self.conv_drop_out)
+        self.conv1   = conv(self.batchNorm,   2,   64, kernel_size=7, stride=2, dropout=self.conv_drop_out)
         self.conv2   = conv(self.batchNorm,  64,  128, kernel_size=5, stride=2, dropout=self.conv_drop_out)
         self.conv3   = conv(self.batchNorm, 128,  256, kernel_size=5, stride=2, dropout=self.conv_drop_out)
         self.conv3_1 = conv(self.batchNorm, 256,  256, kernel_size=3, stride=1, dropout=self.conv_drop_out)
@@ -57,14 +57,16 @@ class DeepVO(nn.Module):
         self.conv4_1 = conv(self.batchNorm, 512,  512, kernel_size=3, stride=1, dropout=self.conv_drop_out)
         self.conv5   = conv(self.batchNorm, 512,  512, kernel_size=3, stride=2, dropout=self.conv_drop_out)
         self.conv5_1 = conv(self.batchNorm, 512,  512, kernel_size=3, stride=1, dropout=self.conv_drop_out)
-        self.conv6   = conv(self.batchNorm, 512, 1024, kernel_size=3, stride=2, dropout=0.5)
+        self.conv6   = conv(self.batchNorm, 512, 1024, kernel_size=3, stride=2, dropout=0.2)
+        self.conv7   = conv(self.batchNorm, 1024, 1024, kernel_size=3, stride=2, dropout=0.5)
 
         self.rnn = nn.LSTM(
-            input_size=6, 
+            input_size=24576, # ouput dimension of CNN 
+            # input_size=98304, # ouput dimension of CNN 
             hidden_size=1000,
             num_layers=2,
             batch_first=True)
-        self.rnnIMU.cuda()
+        self.rnn.cuda()
         self.rnn_drop_out = nn.Dropout(0.5)
         self.linear = nn.Linear(in_features=1000, out_features=7)
         self.se3_layer = SE3Comp()
@@ -95,4 +97,5 @@ class DeepVO(nn.Module):
         out_conv4 = self.conv4_1(self.conv4(out_conv3))
         out_conv5 = self.conv5_1(self.conv5(out_conv4))
         out_conv6 = self.conv6(out_conv5)
-        return out_conv6
+        out_conv7 = self.conv7(out_conv6)
+        return out_conv7

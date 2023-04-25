@@ -61,8 +61,9 @@ for data_dir in data_dirs:
 
     dataset = VIODataset(data_dir,image_frames,imu_reading,gt)
     datasets.append(dataset)
-    dataloaders.append(DataLoader(dataset, batch_size=3, shuffle=True))
+    dataloaders.append(DataLoader(dataset, batch_size=4, shuffle=True))
 
 # frames, gt_image_frames, imu, gt_imu = dataset[10]
 numDataLoaders = len(dataloaders)
+
 frames, gt_image_frames, imu, gt_imu = next(iter(dataloaders[random.randint(0, numDataLoaders-1)]))
