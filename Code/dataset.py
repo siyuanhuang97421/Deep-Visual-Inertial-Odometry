@@ -19,6 +19,7 @@ class VIODataset(Dataset):
         return len(self.image_frames)
 
     def __getitem__(self, i):
+        # print(i)
         if i < self.sequence_length:
             i = self.sequence_length
 
