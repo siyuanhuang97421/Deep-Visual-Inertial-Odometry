@@ -19,52 +19,60 @@ def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, dropout=0):
             nn.Dropout(dropout)#, inplace=True)
         )
 
-class Conv1DBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size):
-        super(Conv1DBlock, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size)
-        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size)
-        self.relu = nn.ReLU()
-        self.pool = nn.MaxPool1d(3)
+class TCN(nn.Module):
+    def __init__(self, input_size, num_channels, kernel_size=2, dropout=0.2):
+        super(TCN, self).__init__()
+        self.input_size = input_size
+        self.num_channels = num_channels
+        self.kernel_size = kernel_size
+        self.dropout = dropout
+        self.conv_layers = nn.ModuleList()
+        self.bn_layers = nn.ModuleList()
+        self.num_layers = len(num_channels)
+        for i in range(self.num_layers):
+            dilation = 2 ** i
+            self.conv_layers.append(nn.Conv1d(
+                in_channels=self.input_size if i == 0 else num_channels[i-1],
+                out_channels=num_channels[i],
+                kernel_size=self.kernel_size,
+                dilation=dilation
+            ))
+            self.bn_layers.append(nn.BatchNorm1d(num_channels[i]))
+        self.fc1 = nn.Linear(num_channels[-1], 128)
+        self.fc2 = nn.Linear(128, 7)
 
     def forward(self, x):
-        out = self.conv1(x)
-        out = self.relu(out)#maybe remove
-        out = self.conv2(out)
-        out = self.relu(out)#maybe remove
-        out = self.pool(out)
+        out = x.permute(0, 2, 1)
+        for i in range(self.num_layers):
+            out = self.conv_layers[i](out)
+            out = self.bn_layers[i](out)
+            out = nn.functional.relu(out)
+            out = nn.functional.dropout(out, p=self.dropout, training=self.training)
+        out = out.mean(dim=2)
+        out = nn.functional.relu(self.fc1(out))
+        out = self.fc2(out)
+        # split output tensor into translation and quaternion components
+        translation = out[:, :3]
+        quaternion = out[:, 3:]
+        # normalize quaternion components
+        quaternion = nn.functional.normalize(quaternion, p=2, dim=1)
+        # concatenate translation and quaternion components
+        out = torch.cat([translation, quaternion], dim=1)
         return out
 
-class PredModel(nn.Module):
-    def __init__(self, window_size=200):
-        super(PredModel, self).__init__()
-        self.conv1 = Conv1DBlock(in_channels=3, out_channels=128, kernel_size=11)
-        self.conv2 = Conv1DBlock(in_channels=3, out_channels=128, kernel_size=11)
-        self.lstm = nn.LSTM(input_size=256*60, hidden_size=128, num_layers=2,dropout=0.25, bidirectional=True, batch_first=True)
-        self.fc1 = nn.Linear(256, 3)
-        self.fc2 = nn.Linear(256, 4)
 
-    def forward(self, x1, x2):
-        batch_size = x1.size(0)
-        # seq_len = x1.size(1)
-        # x1 = x1.view(batch_size*seq_len,x1.size(2),x1.size(3))
-        # x2 = x2.view(batch_size*seq_len,x2.size(2),x2.size(3))
-        out1 = self.conv1(x1)
-        out2 = self.conv2(x2)
-        out = torch.cat((out1, out2), dim=1)
-        out = out.view(batch_size,-1)
-        out = self.lstm(out)[0]
-        y1_pred = self.fc1(out)
-        y2_pred = self.fc2(out)
-        return y1_pred, y2_pred
+# # example input data (batch_size=1, seq_len=100, input_size=6)
+# input_data = torch.randn(1, 200, 6)
 
-# # Instantiate the model
-# model = PredModel(window_size=20)
-# x1 = torch.rand(1,3,200)
-# x2 = torch.rand(1,3,200)
-# print(model(x1,x2)[0].shape)
+# # create TCN instance
+# tcn = TCN(input_size=6, num_channels=[64, 128, 256], kernel_size=3, dropout=0.2)
 
-    
+# # pass input data to the network
+# output = tcn(input_data)
+
+# # print output shape
+# print(output.shape)  # should be (batch_size, output_size, n)
+
 class DeepVO(nn.Module):
     def __init__(self):
         super(DeepVO, self).__init__()
