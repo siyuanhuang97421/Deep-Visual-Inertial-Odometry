@@ -25,9 +25,9 @@ class VIODataset(Dataset):
 
         i_start = i - self.sequence_length
         image_frames = []
-        imu = []
+        imu = np.zeros((1,7))
         gt_image_frames = []
-        gt_imu = []
+        gt_imu = np.zeros((1,17))
         for frame_idx in range(i_start,i+1):
             frame_path = self.data_dir + "/cam0/data/{frameId}.png".format(frameId = self.image_frames[frame_idx])
             frame = Image.open(frame_path)
@@ -36,35 +36,53 @@ class VIODataset(Dataset):
             
         
         for frame_idx in range(i_start,i):
-            imu.append(self.imu_reading[(frame_idx)*10:(frame_idx+1)*10])
-            gt_imu.append(self.ground_truth[(frame_idx)*10:(frame_idx+1)*10])
+            imu = np.vstack((imu, self.imu_reading[(frame_idx)*10:(frame_idx+1)*10]))
+            gt_imu= np.vstack((gt_imu, self.ground_truth[(frame_idx)*10:(frame_idx+1)*10]))
 
+        imu = imu[1:,:]
+        gt_imu = gt_imu[1:,:]
         return torch.tensor(np.array(image_frames)),\
                 torch.tensor(np.array(gt_image_frames)),\
                 torch.tensor(np.array(imu)),\
                 torch.tensor(np.array(gt_imu))
-    
 
-data_dirs = ["./Data/MH_02_easy/mav0", "./Data/MH_03_medium/mav0","./Data/MH_04_difficult/mav0", "./Data/MH_05_difficult/mav0"]
-datasets = []
-dataloaders = []
-for data_dir in data_dirs:
-    image_frames = []
-    with open(data_dir + '/cam0/time_aligned.csv') as csvfile:
-            spamreader = csv.reader(csvfile, delimiter=',', quotechar='|')
-            for row in spamreader:
-                image_frames.append(row[0])
-    imu_file = data_dir + '/imu0/time_aligned.csv'
-    imu_reading = np.genfromtxt(imu_file, delimiter=',')
+# image_frames = []
+# data_dir = "./Data/MH_01_easy/mav0"
+# with open(data_dir + '/cam0/time_aligned.csv') as csvfile:
+#         spamreader = csv.reader(csvfile, delimiter=',', quotechar='|')
+#         for row in spamreader:
+#             image_frames.append(row[0])
+# imu_file = data_dir + '/imu0/time_aligned.csv'
+# imu_reading = np.genfromtxt(imu_file, delimiter=',')
 
-    gt_file = data_dir + '/state_groundtruth_estimate0/time_aligned.csv'
-    gt = np.genfromtxt(gt_file, delimiter=',')
+# gt_file = data_dir + '/state_groundtruth_estimate0/time_aligned.csv'
+# gt = np.genfromtxt(gt_file, delimiter=',')
+# dataset = VIODataset(data_dir,image_frames,imu_reading,gt)
 
-    dataset = VIODataset(data_dir,image_frames,imu_reading,gt)
-    datasets.append(dataset)
-    dataloaders.append(DataLoader(dataset, batch_size=4, shuffle=True))
+# frames, gt_frames, imu, gt_imu = dataset.__getitem__(10)
+# print(dataset.__getitem__(10))
 
-# frames, gt_image_frames, imu, gt_imu = dataset[10]
-numDataLoaders = len(dataloaders)
 
-frames, gt_image_frames, imu, gt_imu = next(iter(dataloaders[random.randint(0, numDataLoaders-1)]))
+# data_dirs = ["./Data/MH_02_easy/mav0", "./Data/MH_03_medium/mav0","./Data/MH_04_difficult/mav0", "./Data/MH_05_difficult/mav0"]
+# datasets = []
+# dataloaders = []
+# for data_dir in data_dirs:
+#     image_frames = []
+#     with open(data_dir + '/cam0/time_aligned.csv') as csvfile:
+#             spamreader = csv.reader(csvfile, delimiter=',', quotechar='|')
+#             for row in spamreader:
+#                 image_frames.append(row[0])
+#     imu_file = data_dir + '/imu0/time_aligned.csv'
+#     imu_reading = np.genfromtxt(imu_file, delimiter=',')
+
+#     gt_file = data_dir + '/state_groundtruth_estimate0/time_aligned.csv'
+#     gt = np.genfromtxt(gt_file, delimiter=',')
+
+#     dataset = VIODataset(data_dir,image_frames,imu_reading,gt)
+#     datasets.append(dataset)
+#     dataloaders.append(DataLoader(dataset, batch_size=4, shuffle=True))
+
+# # frames, gt_image_frames, imu, gt_imu = dataset[10]
+# numDataLoaders = len(dataloaders)
+
+# frames, gt_image_frames, imu, gt_imu = next(iter(dataloaders[random.randint(0, numDataLoaders-1)]))

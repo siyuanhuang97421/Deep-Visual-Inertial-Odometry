@@ -19,9 +19,9 @@ def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, dropout=0):
             nn.Dropout(dropout)#, inplace=True)
         )
 
-class TCN(nn.Module):
+class DeepIO(nn.Module):
     def __init__(self, input_size, num_channels, kernel_size=2, dropout=0.2):
-        super(TCN, self).__init__()
+        super(DeepIO, self).__init__()
         self.input_size = input_size
         self.num_channels = num_channels
         self.kernel_size = kernel_size
@@ -62,10 +62,10 @@ class TCN(nn.Module):
 
 
 # # example input data (batch_size=1, seq_len=100, input_size=6)
-# input_data = torch.randn(1, 200, 6)
+# input_data = torch.randn(1, 20, 6)
 
 # # create TCN instance
-# tcn = TCN(input_size=6, num_channels=[64, 128, 256], kernel_size=3, dropout=0.2)
+# tcn = DeepIO(input_size=6, num_channels=[64, 128, 256], kernel_size=3, dropout=0.2)
 
 # # pass input data to the network
 # output = tcn(input_data)

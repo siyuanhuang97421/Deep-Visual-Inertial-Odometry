@@ -1,5 +1,5 @@
 Data/
 VINet/
-checkpoint/
+checkpoint*/
 __pycache__/
 logs/
