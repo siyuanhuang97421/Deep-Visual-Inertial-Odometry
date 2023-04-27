@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+# from torchsummary import summary
 import numpy as np
 from se3_layer import *
 
@@ -18,30 +19,51 @@ def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, dropout=0):
             nn.Dropout(dropout)#, inplace=True)
         )
 
-class DeepIO(nn.Module):
-    def __init__(self):
-        super(DeepIO, self).__init__()
-        self.rnnIMU = nn.LSTM(
-            input_size=6, 
-            hidden_size=1000,
-            num_layers=2,
-            batch_first=True)
-        self.rnnIMU.cuda()
-        self.rnn_drop_out = nn.Dropout(0.5)
-        self.linear = nn.Linear(in_features=1000, out_features=7)
-        self.se3_layer = SE3Comp()
+class Conv1DBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size):
+        super(Conv1DBlock, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels, out_channels, kernel_size)
+        self.conv2 = nn.Conv1d(out_channels, out_channels, kernel_size)
+        self.relu = nn.ReLU()
+        self.pool = nn.MaxPool1d(3)
 
-
-    def forward(self, imu):
-        out, (imu_n, imu_c) = self.rnnIMU(imu)
-        out = self.rnn_drop_out(out)
-        out = self.linear(out)
-        out = self.se3_layer(out)
-        # out = imu_out[:, -1, :]
-        #print('imu_out', imu_out.shape)
-        # imu_out = imu_out.unsqueeze(1)
-
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.relu(out)#maybe remove
+        out = self.conv2(out)
+        out = self.relu(out)#maybe remove
+        out = self.pool(out)
         return out
+
+class PredModel(nn.Module):
+    def __init__(self, window_size=200):
+        super(PredModel, self).__init__()
+        self.conv1 = Conv1DBlock(in_channels=3, out_channels=128, kernel_size=11)
+        self.conv2 = Conv1DBlock(in_channels=3, out_channels=128, kernel_size=11)
+        self.lstm = nn.LSTM(input_size=256*60, hidden_size=128, num_layers=2,dropout=0.25, bidirectional=True, batch_first=True)
+        self.fc1 = nn.Linear(256, 3)
+        self.fc2 = nn.Linear(256, 4)
+
+    def forward(self, x1, x2):
+        batch_size = x1.size(0)
+        # seq_len = x1.size(1)
+        # x1 = x1.view(batch_size*seq_len,x1.size(2),x1.size(3))
+        # x2 = x2.view(batch_size*seq_len,x2.size(2),x2.size(3))
+        out1 = self.conv1(x1)
+        out2 = self.conv2(x2)
+        out = torch.cat((out1, out2), dim=1)
+        out = out.view(batch_size,-1)
+        out = self.lstm(out)[0]
+        y1_pred = self.fc1(out)
+        y2_pred = self.fc2(out)
+        return y1_pred, y2_pred
+
+# # Instantiate the model
+# model = PredModel(window_size=20)
+# x1 = torch.rand(1,3,200)
+# x2 = torch.rand(1,3,200)
+# print(model(x1,x2)[0].shape)
+
     
 class DeepVO_nose3(nn.Module):
     def __init__(self):
