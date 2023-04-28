@@ -9,8 +9,8 @@ def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, dropout=0):
         return nn.Sequential(
             nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=(kernel_size-1)//2, bias=False),
             nn.BatchNorm2d(out_planes),
-            nn.LeakyReLU(0.1, inplace=True),
-            nn.Dropout(dropout)#, inplace=True)
+            nn.LeakyReLU(0.1, inplace=True)
+            # nn.Dropout(dropout)#, inplace=True)
         )
     else:
         return nn.Sequential(
@@ -92,24 +92,30 @@ class DeepVO(nn.Module):
        self.conv6_1 = conv(self.batchNorm, 1024, 1024, kernel_size=3, stride=1, dropout=self.conv_drop_out)
        self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
-       self.linear1 = nn.Linear(in_features=1024*6*4, out_features=2048)
-       self.linear2 = nn.Linear(in_features=2048, out_features=7)
-    #    self.linear1_pos = nn.Linear(in_features=1024*6*4, out_features=2048)
-    #    self.linear2_pos = nn.Linear(in_features=2048, out_features=3)
-    #    self.linear1_quat = nn.Linear(in_features=1024*6*4, out_features=2048)
-    #    self.linear2_quat = nn.Linear(in_features=2048, out_features=4)
+    #    self.linear1 = nn.Linear(in_features=1024*6*4, out_features=2048)
+    #    self.linear2 = nn.Linear(in_features=2048, out_features=7)
+       self.linear1_pos = nn.Linear(in_features=1024*6*4, out_features=512)
+       self.linear2_pos = nn.Linear(in_features=512, out_features=512)
+       self.linear3_pos = nn.Linear(in_features=512, out_features=3)
+       self.linear1_quat = nn.Linear(in_features=1024*6*4, out_features=512)
+       self.linear2_quat = nn.Linear(in_features=512, out_features=512)
+       self.linear3_quat = nn.Linear(in_features=512, out_features=4)
 
 
    def forward(self, x):
        out = self.encode_image(x)
        out = out.view(out.shape[0], -1)
-       out = self.linear1(out)
-       out = self.linear2(out)
+    #    out = self.linear1(out)
+    #    out = self.linear2(out)
        
-    #    pos = self.linear1(out)
-    #    pos = self.linear2(pos)
+       pos = self.linear1_pos(out)
+       pos = self.linear2_pos(pos)
+       pos = self.linear3_pos(pos)
+       quat = self.linear1_quat(out)
+       quat = self.linear2_quat(quat)
+       quat = self.linear3_quat(quat)
 
-       pos, quat = out[:, :3], out[:, 3:]
+    #    pos, quat = out[:, :3], out[:, 3:]
        quat = nn.functional.normalize(quat, p=2, dim=1)
        out = torch.cat((pos, quat), 1)
        return out

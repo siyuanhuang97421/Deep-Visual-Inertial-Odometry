@@ -56,21 +56,29 @@ def loss_function(pred_f2f, gt_f2f, pred_global, gt_global):
     # return torch.stack(loss)
     return loss
 
-def io_loss_function(pred_f2f, gt_f2f):
+def io_loss_function(pred_f2f, gt_f2f, epoch=0):
     # criterion  = nn.L1Loss(size_average=False)
     # loss = criterion(pred_f2f, target_f2f) + criterion(pred_abs, target_abs)
 
     L2  = nn.MSELoss(size_average=False)
     alpha = 150.
+    if epoch > 1000:
+        alpha = 15
+    elif epoch > 5000:
+        alpha = 1
     batch_size = pred_f2f.shape[0]
     # loss = []
 
     # for i in range(batch_size):
     loss_local_trans = L2(pred_f2f[:, :3], gt_f2f[:, :3])
-    loss_local_angle =torch.abs(torch.sum(pred_f2f[:, 3:] * gt_f2f[:, 3:],dim=1))
-    loss_local_angle =torch.sum(torch.ones_like(loss_local_angle) - loss_local_angle)
+    # loss_local_angle =torch.abs(torch.sum(pred_f2f[:, 3:] * gt_f2f[:, 3:],dim=1))
+    # loss_local_angle =torch.sum(torch.ones_like(loss_local_angle) - loss_local_angle)
+
+    loss_local_angle = torch.stack([1-torch.abs(torch.dot(pred_f2f[i, 3:], gt_f2f[i, 3:])) for i in range(batch_size)])
+    loss_local_angle = torch.sum(torch.abs(loss_local_angle))
     loss_local = loss_local_trans + alpha * loss_local_angle
-    print(loss_local_trans, loss_local_angle)
+    print(loss_local_trans.data, loss_local_angle.data)
+    print(loss_local_trans.data / batch_size, loss_local_angle.data / batch_size)
         # loss.append(loss_local)
 
     # loss_global_trans = L2(pred_global[:, :, :3], gt_global[:, :, :3])
@@ -211,7 +219,7 @@ def train(args, dataloaders):
     model.to(device)
     # optimizer = optim.SGD(model.parameters(), lr=args.lrate, momentum=0.9)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=args.lrate, betas=(0.9, 0.999))
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[500, 800], gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=np.arange(300, args.max_epochs, 300), gamma=0.5)
     # startIter = loadModel(model, args)
     startIter = 0
     model.train() # put inside epoch loop in my previous code
@@ -242,7 +250,7 @@ def train(args, dataloaders):
         #             pred_global[i, j] = pose_accumulate(pred_global[i, j-1], seq[j])
 
         if args.network_type == "vo":
-            loss = io_loss_function(pred_f2f, gt_f2f) #, pred_global, gt_global)
+            loss = io_loss_function(pred_f2f, gt_f2f, epoch) #, pred_global, gt_global)
         elif args.network_type == "io":
             loss = io_loss_function(pred_f2f, gt_f2f)
         loss.backward()
@@ -287,6 +295,7 @@ def testvo(args, dataloader):
             if args.network_type == "vo":
                 pred_f2f = model(imgs_segment)
             pred_f2f_all.append(pred_f2f)
+            # print(i, pred_f2f)
         # pred_f2f_all = torch.as_tensor(pred_f2f_all).to(device)
         # last_pose_f2f = pred_f2f_all[-1]
         pred_f2f_all = torch.stack(pred_f2f_all).squeeze()
@@ -303,27 +312,45 @@ def testvo(args, dataloader):
         for j in range(1, seq_length-1):
             pred_global[j] = pose_accumulate(pred_global[j-1], pred_f2f_all[j])
 
-    # loss = loss_test(pred_f2f_all.view(1, -1, 7), gt_f2f, pred_global.view(1, -1, 7), gt_global)
+    loss = io_loss_function(pred_f2f_all, gt_f2f.squeeze())
     # print(loss)
 
     pred_global = np.squeeze(pred_global.detach().cpu().numpy())
+    gt_global = np.squeeze(gt_global.detach().cpu().numpy())
     x = pred_global[:, 0]
     y = pred_global[:, 1]
     z = pred_global[:, 2]
 
-    # plt.figure()
-    # plt.subplot(1, 2, 1)
-    # plt.plot(x, y, "*-")
-    # plt.subplot(1, 2, 2)
-    # plt.plot(x, z, "*-")
-    # plt.show()
+    xt = gt_global[:, 0]
+    yt = gt_global[:, 1]
+    zt = gt_global[:, 2]
+
+    plt.figure()
+    plt.subplot(1, 2, 1)
+    plt.plot(x, y, "*-", label="estimation")
+    plt.plot(xt, yt, "*-", label="ground truth")
+    plt.axis('equal')
+    plt.legend()
+    plt.xlabel("x / m")
+    plt.ylabel("y / m")
+    plt.subplot(1, 2, 2)
+    plt.plot(x, z, "*-", label="estimation")
+    plt.plot(xt, zt, "*-", label="ground truth")
+    plt.axis('equal')
+    plt.xlabel("x / m")
+    plt.ylabel("z / m")
+    plt.legend()
+    plt.show()
 
     fig = plt.figure()
     ax = plt.axes(projection ='3d') 
-    ax.plot3D(x, y, z, 'green')
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.set_zlabel("z")
+    ax.plot3D(x, y, z, 'blue', label="estimation")
+    ax.plot3D(xt, yt, zt, 'red', label="ground truth")
+    ax.set_xlabel("x / m")
+    ax.set_ylabel("y / m")
+    ax.set_zlabel("z / m")
+    ax.set_aspect('equal')
+    ax.legend()
     # ax.set_title('3D line plot geeks for geeks')
     plt.show()
 
@@ -447,13 +474,13 @@ def configParser():
     # parser.add_argument('--data_path',default="./Phase2/data/lego/",help="dataset path")
     parser.add_argument('--logs_path',default="./logs/",help="logs path")
     parser.add_argument('--network_type',default="vo",help="vo/io/vio")
-    parser.add_argument('--mode',default='train',help="train/test/val")
-    parser.add_argument('--max_epochs',default=1000,help="number of max epochs for training")
+    parser.add_argument('--mode',default='test',help="train/test/val")
+    parser.add_argument('--max_epochs',default=9000,help="number of max epochs for training")
     parser.add_argument('--lrate',default=1e-4,help="training learning rate")
     parser.add_argument('--batch_size',default=32,help="batch size")
-    parser.add_argument('--checkpoint_path',default="./checkpoint_a150/",help="checkpoints path")
+    parser.add_argument('--checkpoint_path',default="./checkpoint_a150_512_1e4_dot_abs_nodropout/",help="checkpoints path")
     parser.add_argument('--load_checkpoint',default=True,help="whether to load checkpoint or not")
-    parser.add_argument('--save_ckpt_iter',default=100,help="num of iteration to save checkpoint")
+    parser.add_argument('--save_ckpt_iter',default=200,help="num of iteration to save checkpoint")
     return parser
 
 if __name__ == "__main__":
