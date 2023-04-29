@@ -36,14 +36,14 @@ def loss_function(pred_f2f, gt_f2f, pred_global, gt_global):
     # loss = criterion(pred_f2f, target_f2f) + criterion(pred_abs, target_abs)
 
     L2  = nn.MSELoss(size_average=False)
-    alpha = 1.
+    alpha = 200.
     batch_size = pred_f2f.shape[0]
     # loss = []
 
     # for i in range(batch_size):
     loss_local_trans = L2(pred_f2f[:, :, :3], gt_f2f[:, :, :3])
-    loss_local_angle = L2(pred_f2f[:, :, 3:], gt_f2f[:, :, 3:])
-    loss_local = loss_local_trans + alpha * loss_local_angle
+    loss_local_angle = torch.stack([1-torch.abs(torch.dot(pred_f2f[i, 3:], gt_f2f[i, 3:])) for i in range(batch_size)])
+    loss_local_angle = torch.sum(torch.abs(loss_local_angle))
         # loss.append(loss_local)
 
     # loss_global_trans = L2(pred_global[:, :, :3], gt_global[:, :, :3])
@@ -61,15 +61,14 @@ def io_loss_function(pred_f2f, gt_f2f):
     # loss = criterion(pred_f2f, target_f2f) + criterion(pred_abs, target_abs)
 
     L2  = nn.MSELoss(size_average=False)
-    alpha = 1.
+    alpha = 200.
     batch_size = pred_f2f.shape[0]
     # loss = []
 
     # for i in range(batch_size):
     loss_local_trans = L2(pred_f2f[:, :3], gt_f2f[:, :3])
-    loss_local_angle =torch.abs(torch.sum(pred_f2f[:, 3:] * gt_f2f[:, 3:],dim=1))
-    loss_local_angle =torch.sum(torch.ones_like(loss_local_angle) - loss_local_angle)
-    loss_local = loss_local_trans + alpha * loss_local_angle
+    loss_local_angle = torch.stack([1-torch.abs(torch.dot(pred_f2f[i, 3:], gt_f2f[i, 3:])) for i in range(batch_size)])
+    loss_local_angle = torch.sum(torch.abs(loss_local_angle))
         # loss.append(loss_local)
 
     # loss_global_trans = L2(pred_global[:, :, :3], gt_global[:, :, :3])
@@ -77,7 +76,7 @@ def io_loss_function(pred_f2f, gt_f2f):
     # loss_global = loss_global_trans + alpha * loss_global_angle
 
     # loss = loss_local + loss_global
-    loss = loss_local #/ (batch_size * pred_f2f.shape[1])
+    loss = loss_local_trans + alpha * loss_local_angle
     
     # return torch.stack(loss)
     return loss
@@ -211,7 +210,7 @@ def train(args, dataloaders):
     # traj_end = 1000 # len(dataset)
 
     if args.network_type == "io":
-        model = DeepIO(input_size=6, num_channels=[64, 128, 256], kernel_size=3, dropout=0.2)
+        model = DeepIO(input_size=6, output_size=7, num_channels=256)
     if args.network_type == "vo":
         model = DeepVO()
     model.to(device)
@@ -336,7 +335,7 @@ def testio(args, dataset):
     # frames, gt_image_frames, imu, gt_imu = next(iter(dataloader))
     dataset_len = dataset.__len__()
 
-    model = DeepIO(input_size=6, num_channels=[64, 128, 256], kernel_size=3, dropout=0.2)
+    model = DeepIO(input_size=6, output_size=7, num_channels=256)
     model.to(device)
 
     loadModel(model, args)
@@ -400,7 +399,8 @@ def main(args):
     print("Loading data")
 
     if args.mode == "train":
-        data_dirs = ["./Data/MH_02_easy/mav0", "./Data/MH_03_medium/mav0","./Data/MH_04_difficult/mav0", "./Data/MH_05_difficult/mav0"]
+        # data_dirs = ["./Data/MH_02_easy/mav0", "./Data/MH_03_medium/mav0","./Data/MH_04_difficult/mav0", "./Data/MH_05_difficult/mav0"]
+        data_dirs = ["./Data/MH_01_easy/mav0"]
         datasets = []
         dataloaders = []
         for data_dir in data_dirs:
@@ -448,14 +448,14 @@ def configParser():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_path',default="./Phase2/data/lego/",help="dataset path")
     parser.add_argument('--logs_path',default="./logs/",help="logs path")
-    parser.add_argument('--network_type',default="vo",help="vo/io/vio")
+    parser.add_argument('--network_type',default="io",help="vo/io/vio")
     parser.add_argument('--mode',default='test',help="train/test/val")
-    parser.add_argument('--max_epochs',default=1000,help="number of max epochs for training")
+    parser.add_argument('--max_epochs',default=10000,help="number of max epochs for training")
     parser.add_argument('--lrate',default=5e-4,help="training learning rate")
     parser.add_argument('--batch_size',default=10,help="batch size")
-    parser.add_argument('--checkpoint_path',default="./checkpoint/",help="checkpoints path")
+    parser.add_argument('--checkpoint_path',default="./checkpoint_io/",help="checkpoints path")
     parser.add_argument('--load_checkpoint',default=True,help="whether to load checkpoint or not")
-    parser.add_argument('--save_ckpt_iter',default=100,help="num of iteration to save checkpoint")
+    parser.add_argument('--save_ckpt_iter',default=1000,help="num of iteration to save checkpoint")
     return parser
 
 if __name__ == "__main__":

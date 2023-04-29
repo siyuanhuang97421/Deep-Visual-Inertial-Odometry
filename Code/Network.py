@@ -20,45 +20,90 @@ def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1, dropout=0):
         )
 
 class DeepIO(nn.Module):
-    def __init__(self, input_size, num_channels, kernel_size=2, dropout=0.2):
+    def __init__(self, input_size, output_size, num_channels, kernel_size=3, dropout=0.2):
         super(DeepIO, self).__init__()
         self.input_size = input_size
+        self.output_size = output_size
         self.num_channels = num_channels
         self.kernel_size = kernel_size
         self.dropout = dropout
-        self.conv_layers = nn.ModuleList()
-        self.bn_layers = nn.ModuleList()
-        self.num_layers = len(num_channels)
-        for i in range(self.num_layers):
-            dilation = 2 ** i
-            self.conv_layers.append(nn.Conv1d(
-                in_channels=self.input_size if i == 0 else num_channels[i-1],
-                out_channels=num_channels[i],
-                kernel_size=self.kernel_size,
-                dilation=dilation
-            ))
-            self.bn_layers.append(nn.BatchNorm1d(num_channels[i]))
-        self.fc1 = nn.Linear(num_channels[-1], 128)
-        self.fc2 = nn.Linear(128, 7)
+        self.layers = self._create_layers()
+        self.flat = nn.Flatten()
+        self.fc1 = nn.Linear(21504, 128)
+        self.fc2 = nn.Linear(128, self.output_size)
+
+    def _create_layers(self):
+        layers = []
+        # calculate the dilation required for a receptive field of 1024
+        # with a kernel size of 2 and 10 layers
+        dilation = 1
+        for i in range(8):
+            if i == 0:
+                input_size = self.input_size
+            else:
+                input_size = self.num_channels
+            layers += [
+                nn.Conv1d(input_size, self.num_channels, self.kernel_size, dilation=dilation),
+                nn.BatchNorm1d(self.num_channels),
+                nn.ReLU(),
+                nn.Dropout(self.dropout)
+            ]
+        
+        return nn.Sequential(*layers)
 
     def forward(self, x):
-        out = x.permute(0, 2, 1)
-        for i in range(self.num_layers):
-            out = self.conv_layers[i](out)
-            out = self.bn_layers[i](out)
-            out = nn.functional.relu(out)
-            out = nn.functional.dropout(out, p=self.dropout, training=self.training)
-        out = out.mean(dim=2)
-        out = nn.functional.relu(self.fc1(out))
-        out = self.fc2(out)
-        # split output tensor into translation and quaternion components
-        translation = out[:, :3]
-        quaternion = out[:, 3:]
-        # normalize quaternion components
-        quaternion = nn.functional.normalize(quaternion, p=2, dim=1)
-        # concatenate translation and quaternion components
-        out = torch.cat([translation, quaternion], dim=1)
-        return out
+        # input shape: (batch_size, input_size, seq_len)
+        # output shape: (batch_size, output_size)
+        x = x.transpose(1, 2)
+        x = self.layers(x)
+        x = self.flat(x)
+        x = self.fc1(x)
+        x = self.fc2(x)
+        # x = x[:, :, -1]
+        return x
+    
+
+# class DeepIO(nn.Module):
+#     def __init__(self, input_size, num_channels, kernel_size=2, dropout=0.2):
+#         super(DeepIO, self).__init__()
+#         self.input_size = input_size
+#         self.num_channels = num_channels
+#         self.kernel_size = kernel_size
+#         self.dropout = dropout
+#         self.conv_layers = nn.ModuleList()
+#         self.bn_layers = nn.ModuleList()
+#         self.num_layers = len(num_channels)
+#         for i in range(self.num_layers):
+#             dilation = 2 ** i
+#             self.conv_layers.append(nn.Conv1d(
+#                 in_channels=self.input_size if i == 0 else num_channels[i-1],
+#                 out_channels=num_channels[i],
+#                 kernel_size=self.kernel_size,
+#                 dilation=dilation
+#             ))
+#             self.bn_layers.append(nn.BatchNorm1d(num_channels[i]))
+#         self.flat = nn.Flatten()
+#         self.fc1 = nn.Linear(22016, 256)
+#         self.fc2 = nn.Linear(256, 7)
+
+#     def forward(self, x):
+#         out = x.permute(0, 2, 1)
+#         for i in range(self.num_layers):
+#             out = self.conv_layers[i](out)
+#             out = self.bn_layers[i](out)
+#             out = nn.functional.relu(out)
+#             out = nn.functional.dropout(out, p=self.dropout, training=self.training)
+#         out = self.flat(out)
+#         out = nn.functional.relu(self.fc1(out))
+#         out = self.fc2(out)
+#         # split output tensor into translation and quaternion components
+#         translation = out[:, :3]
+#         quaternion = out[:, 3:]
+#         # normalize quaternion components
+#         quaternion = nn.functional.normalize(quaternion, p=2, dim=1)
+#         # concatenate translation and quaternion components
+#         out = torch.cat([translation, quaternion], dim=1)
+#         return out
 
 
 # # example input data (batch_size=1, seq_len=100, input_size=6)
