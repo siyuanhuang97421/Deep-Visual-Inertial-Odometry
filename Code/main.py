@@ -56,7 +56,7 @@ def loss_function(pred_f2f, gt_f2f, pred_global, gt_global):
     # return torch.stack(loss)
     return loss
 
-def io_loss_function(pred_f2f, gt_f2f):
+def io_loss_function(pred_f2f, gt_f2f, epoch=0):
     # criterion  = nn.L1Loss(size_average=False)
     # loss = criterion(pred_f2f, target_f2f) + criterion(pred_abs, target_abs)
 
@@ -154,7 +154,7 @@ def load_batch_data_vo(dataloaders, mode = "train"):
     gt_pose = gt_image_frames[:, :, 1:8]
     # gt_imu_pose = gt_imu[:,:,1:8]
     imu = imu[:,:,1:7]
-    img_pairs = []
+    # img_pairs = []
     gt_f2f = []
     gt_global = []
 
@@ -169,11 +169,11 @@ def load_batch_data_vo(dataloaders, mode = "train"):
         # gt_global.append(np.array([gt_pose[i] for k in range(1, seq_length)]))
         gt_global.append(np.array([pose_diff(gt_pose[i, k, :], gt_pose[i, 0, :]) for k in range(1, frame_seq_length)]))
 
-    img_pairs = torch.tensor(np.array(img_pairs)).float().to(device)
+    # img_pairs = torch.tensor(np.array(img_pairs)).float().to(device)
     gt_f2f = torch.tensor(np.array(gt_f2f)).float().to(device)
     gt_global = torch.tensor(np.array(gt_global)).float().to(device)
 
-    frames = frames[:, :, None].float()
+    frames = frames.float().squeeze()
     imu = imu.float()
     return frames.to(device), imu, gt_f2f, gt_global
     # return img_pairs, imu, gt_f2f, gt_global
@@ -196,13 +196,6 @@ def loadModel(model, args):
     
     return startIter
 
-def normalize_quaternion(x):
-    for i in range(x.shape[0]):
-        for j in range(x.shape[1]):
-            x[i, j, :] /= torch.norm(x[i, j, :])
-
-    return x
-
 def train(args, dataloaders):
     # setup tensorboard
     writer = SummaryWriter(args.logs_path)
@@ -216,7 +209,7 @@ def train(args, dataloaders):
     model.to(device)
     # optimizer = optim.SGD(model.parameters(), lr=args.lrate, momentum=0.9)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=args.lrate, betas=(0.9, 0.999))
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[300, 600], gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=np.arange(300, args.max_epochs, 300), gamma=0.5)
     # startIter = loadModel(model, args)
     startIter = 0
     model.train() # put inside epoch loop in my previous code
@@ -232,22 +225,22 @@ def train(args, dataloaders):
             pred_f2f = model(imgs)
         elif args.network_type == "io":
             pred_f2f = model(imu)
-            gt_f2f = gt_f2f[:,-1,:]
+        gt_f2f = gt_f2f[:,-1,:]
         # pred_f2f = normalize_quaternion(pred_f2f)
 
         # calculate accumulated abs pose
-        batch_size = pred_f2f.shape[0]
-        seq_length = pred_f2f.shape[1]
-        pred_global = torch.empty(batch_size, seq_length, 7).to(device)
-        if args.network_type == "vo":
-            for i in range(batch_size):
-                seq = pred_f2f[i]
-                pred_global[i, 0] = seq[0]
-                for j in range(1, len(seq)):
-                    pred_global[i, j] = pose_accumulate(pred_global[i, j-1], seq[j])
+        # batch_size = pred_f2f.shape[0]
+        # seq_length = pred_f2f.shape[1]
+        # pred_global = torch.empty(batch_size, seq_length, 7).to(device)
+        # if args.network_type == "vo":
+        #     for i in range(batch_size):
+        #         seq = pred_f2f[i]
+        #         pred_global[i, 0] = seq[0]
+        #         for j in range(1, len(seq)):
+        #             pred_global[i, j] = pose_accumulate(pred_global[i, j-1], seq[j])
 
         if args.network_type == "vo":
-            loss = loss_function(pred_f2f, gt_f2f, pred_global, gt_global)
+            loss = io_loss_function(pred_f2f, gt_f2f, epoch) #, pred_global, gt_global)
         elif args.network_type == "io":
             loss = io_loss_function(pred_f2f, gt_f2f)
         loss.backward()
@@ -282,20 +275,22 @@ def testvo(args, dataloader):
     with torch.no_grad():
         imgs, imu, gt_f2f, gt_global = load_batch_data_vo(dataloader, "test")
 
-        seq_length = imgs.shape[1]
+        seq_length = imgs.shape[0]
         pred_f2f_all = []
-        segment_length = 10
-        for i in range(0, seq_length, segment_length):
-            imgs_segment = imgs[:, i:i+segment_length+1]
+        # segment_length = 10
+        for i in range(seq_length - 1):
+            imgs_segment = imgs[i:i+2, :]
+            imgs_segment = imgs_segment[None, :]
 
             if args.network_type == "vo":
                 pred_f2f = model(imgs_segment)
-            pred_f2f_all.extend(pred_f2f)
+            pred_f2f_all.append(pred_f2f)
+            # print(i, pred_f2f)
         # pred_f2f_all = torch.as_tensor(pred_f2f_all).to(device)
-        last_pose_f2f = pred_f2f_all[-1]
-        pred_f2f_all = torch.stack(pred_f2f_all[:-1])
-        pred_f2f_all = pred_f2f_all.view(seq_length - seq_length % segment_length, -1)
-        pred_f2f_all = torch.cat((pred_f2f_all, last_pose_f2f))
+        # last_pose_f2f = pred_f2f_all[-1]
+        pred_f2f_all = torch.stack(pred_f2f_all).squeeze()
+        # pred_f2f_all = pred_f2f_all.view(seq_length - seq_length % segment_length, -1)
+        # pred_f2f_all = torch.cat((pred_f2f_all, last_pose_f2f))
 
         # calculate accumulated abs pose
         # batch_size = pred_f2f.shape[0]
@@ -307,27 +302,45 @@ def testvo(args, dataloader):
         for j in range(1, seq_length-1):
             pred_global[j] = pose_accumulate(pred_global[j-1], pred_f2f_all[j])
 
-    loss = loss_test(pred_f2f_all.view(1, -1, 7), gt_f2f, pred_global.view(1, -1, 7), gt_global)
+    loss = io_loss_function(pred_f2f_all, gt_f2f.squeeze())
     # print(loss)
 
     pred_global = np.squeeze(pred_global.detach().cpu().numpy())
+    gt_global = np.squeeze(gt_global.detach().cpu().numpy())
     x = pred_global[:, 0]
     y = pred_global[:, 1]
     z = pred_global[:, 2]
 
-    # plt.figure()
-    # plt.subplot(1, 2, 1)
-    # plt.plot(x, y, "*-")
-    # plt.subplot(1, 2, 2)
-    # plt.plot(x, z, "*-")
-    # plt.show()
+    xt = gt_global[:, 0]
+    yt = gt_global[:, 1]
+    zt = gt_global[:, 2]
+
+    plt.figure()
+    plt.subplot(1, 2, 1)
+    plt.plot(x, y, "*-", label="estimation")
+    plt.plot(xt, yt, "*-", label="ground truth")
+    plt.axis('equal')
+    plt.legend()
+    plt.xlabel("x / m")
+    plt.ylabel("y / m")
+    plt.subplot(1, 2, 2)
+    plt.plot(x, z, "*-", label="estimation")
+    plt.plot(xt, zt, "*-", label="ground truth")
+    plt.axis('equal')
+    plt.xlabel("x / m")
+    plt.ylabel("z / m")
+    plt.legend()
+    plt.show()
 
     fig = plt.figure()
     ax = plt.axes(projection ='3d') 
-    ax.plot3D(x, y, z, 'green')
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.set_zlabel("z")
+    ax.plot3D(x, y, z, 'blue', label="estimation")
+    ax.plot3D(xt, yt, zt, 'red', label="ground truth")
+    ax.set_xlabel("x / m")
+    ax.set_ylabel("y / m")
+    ax.set_zlabel("z / m")
+    ax.set_aspect('equal')
+    ax.legend()
     # ax.set_title('3D line plot geeks for geeks')
     plt.show()
 
@@ -415,7 +428,10 @@ def main(args):
             gt_file = data_dir + '/state_groundtruth_estimate0/time_aligned.csv'
             gt = np.genfromtxt(gt_file, delimiter=',')
 
-            dataset = VIODataset(data_dir,image_frames,imu_reading,gt)
+            if args.network_type == "vo":
+                dataset = VIODataset(data_dir,image_frames,imu_reading,gt, 1)
+            else:
+                dataset = VIODataset(data_dir,image_frames,imu_reading,gt)
             datasets.append(dataset)
             dataloaders.append(DataLoader(dataset, batch_size=args.batch_size, shuffle=True))
 
@@ -446,16 +462,16 @@ def main(args):
 
 def configParser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_path',default="./Phase2/data/lego/",help="dataset path")
+    # parser.add_argument('--data_path',default="./Phase2/data/lego/",help="dataset path")
     parser.add_argument('--logs_path',default="./logs/",help="logs path")
     parser.add_argument('--network_type',default="io",help="vo/io/vio")
     parser.add_argument('--mode',default='test',help="train/test/val")
-    parser.add_argument('--max_epochs',default=10000,help="number of max epochs for training")
-    parser.add_argument('--lrate',default=5e-4,help="training learning rate")
-    parser.add_argument('--batch_size',default=10,help="batch size")
-    parser.add_argument('--checkpoint_path',default="./checkpoint_io/",help="checkpoints path")
+    parser.add_argument('--max_epochs',default=9000,help="number of max epochs for training")
+    parser.add_argument('--lrate',default=1e-4,help="training learning rate")
+    parser.add_argument('--batch_size',default=32,help="batch size")
+    parser.add_argument('--checkpoint_path',default="./checkpoint_a150_512_1e4_dot_abs_nodropout/",help="checkpoints path")
     parser.add_argument('--load_checkpoint',default=True,help="whether to load checkpoint or not")
-    parser.add_argument('--save_ckpt_iter',default=1000,help="num of iteration to save checkpoint")
+    parser.add_argument('--save_ckpt_iter',default=200,help="num of iteration to save checkpoint")
     return parser
 
 if __name__ == "__main__":
